@@ -146,13 +146,13 @@ const initializing = {};
 
 function cleanupSession(sessionId) {
     delete sessions[sessionId];
-    delete qrCodes[sessionId]; 
+    delete qrCodes[sessionId];
     delete clientReadyStatus[sessionId];
     delete initializing[sessionId];
-    
+
     io.emit('session_removed', { sessionId });
-    io.emit('status_update', { 
-        sessionId, 
+    io.emit('status_update', {
+        sessionId,
         message: 'Session removed.',
         qrCleared: true
     });
@@ -163,15 +163,15 @@ function createWhatsappSession(sessionId) {
         console.log(`[${sessionId}] Session initialization already in progress, skipping duplicate request`);
         return null;
     }
-    
+
     if (sessions[sessionId]) {
         console.log(`[${sessionId}] Session already exists, not initializing again`);
         return sessions[sessionId];
     }
-    
+
     console.log(`[${sessionId}] Initializing WhatsApp client...`);
     initializing[sessionId] = true;
-    
+
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: sessionId, dataPath: path.join(__dirname, '.wwebjs_auth') }),
         puppeteer: {
@@ -180,9 +180,9 @@ function createWhatsappSession(sessionId) {
         },
     });
 
-    sessions[sessionId] = { 
+    sessions[sessionId] = {
         client,
-        settings: { 
+        settings: {
             isTypingIndicatorEnabled: false,
             autoSendSeenEnabled: false,
             maintainOnlinePresenceEnabled: false,
@@ -196,46 +196,46 @@ function createWhatsappSession(sessionId) {
         io.to(sessionId).emit('qr_code', { sessionId, qr });
         io.emit('status_update', { sessionId, message: 'QR code received. Scan.', qr });
     });
-    
+
     client.on('authenticated', () => {
         console.log(`[${sessionId}] AUTHENTICATED`);
         qrCodes[sessionId] = null;
         io.to(sessionId).emit('authenticated', { sessionId });
         io.emit('status_update', { sessionId, message: 'Authenticated!' });
     });
-    
+
     client.on('auth_failure', msg => {
         console.error(`[${sessionId}] AUTHENTICATION FAILURE:`, msg);
-        qrCodes[sessionId] = null; 
+        qrCodes[sessionId] = null;
         clientReadyStatus[sessionId] = false;
         io.to(sessionId).emit('auth_failure', { sessionId, message: msg });
         io.emit('status_update', { sessionId, message: `Authentication failure: ${msg}` });
-        
+
         if (sessions[sessionId]) {
             sessions[sessionId].client.destroy().catch(e => console.error(`Error destroying client after auth_failure: ${e.message}`));
             cleanupSession(sessionId);
         }
     });
-    
+
     client.on('ready', () => {
         console.log(`[${sessionId}] WhatsApp client READY!`);
-        clientReadyStatus[sessionId] = true; 
+        clientReadyStatus[sessionId] = true;
         qrCodes[sessionId] = null;
         io.to(sessionId).emit('ready', { sessionId });
         io.emit('status_update', { sessionId, message: 'Client is READY!' });
         delete initializing[sessionId];
     });
-    
+
     client.on('message', async msg => {
         io.to(sessionId).emit('new_message', { sessionId, message: { from: msg.from, to: msg.to, body: msg.body, timestamp: msg.timestamp, id: msg.id.id, author: msg.author, isStatus: msg.isStatus, isGroupMsg: msg.isGroupMsg, hasMedia: msg.hasMedia, type: msg.type }});
     });
-    
+
     client.on('disconnected', (reason) => {
         console.log(`[${sessionId}] Client logged out. Reason:`, reason);
         cleanupSession(sessionId);
         io.to(sessionId).emit('disconnected', { sessionId, reason });
     });
-    
+
     client.initialize().catch(err => {
         console.error(`[${sessionId}] Initialization ERROR:`, err.message);
         io.to(sessionId).emit('init_error', { sessionId, error: err.message });
@@ -246,7 +246,7 @@ function createWhatsappSession(sessionId) {
             delete initializing[sessionId];
         }
     });
-    
+
     return sessions[sessionId].client;
 }
 
@@ -308,68 +308,68 @@ app.post('/auth/login', async (req, res) => {
 
 app.post('/session/init/:sessionId', authenticateToken, (req, res) => {
     const { sessionId } = req.params;
-    
+
     if (initializing[sessionId]) {
-        return res.json({ 
-            success: true, 
-            message: `Session '${sessionId}' initialization already in progress.`, 
-            status: 'INITIALIZING' 
+        return res.json({
+            success: true,
+            message: `Session '${sessionId}' initialization already in progress.`,
+            status: 'INITIALIZING'
         });
     }
-    
+
     if (sessions[sessionId] && sessions[sessionId].client) {
         sessions[sessionId].client.getState()
             .then(state => {
-                res.json({ 
-                    success: true, 
-                    message: `Session '${sessionId}' exists.`, 
-                    status: state || 'INITIALIZING', 
-                    qr: qrCodes[sessionId] 
+                res.json({
+                    success: true,
+                    message: `Session '${sessionId}' exists.`,
+                    status: state || 'INITIALIZING',
+                    qr: qrCodes[sessionId]
                 });
             })
-            .catch(() => { 
+            .catch(() => {
                 if (sessions[sessionId] && sessions[sessionId].client) {
                     try { sessions[sessionId].client.destroy(); } catch(e) { /* ignore */ }
                     cleanupSession(sessionId);
                 }
-                
-                createWhatsappSession(sessionId); 
-                res.json({ 
-                    success: true, 
-                    message: `Session '${sessionId}' re-initializing.`, 
-                    status: 'RE_INITIALIZING' 
+
+                createWhatsappSession(sessionId);
+                res.json({
+                    success: true,
+                    message: `Session '${sessionId}' re-initializing.`,
+                    status: 'RE_INITIALIZING'
                 });
             });
-    } else { 
-        createWhatsappSession(sessionId); 
-        res.json({ 
-            success: true, 
-            message: `Session '${sessionId}' initialization started.`, 
-            status: 'INITIALIZING' 
+    } else {
+        createWhatsappSession(sessionId);
+        res.json({
+            success: true,
+            message: `Session '${sessionId}' initialization started.`,
+            status: 'INITIALIZING'
         });
     }
 });
 
 app.get('/sessions', authenticateToken, (req, res) => {
-    const sessionList = Object.keys(sessions).map(id => ({ 
-        sessionId: id, 
-        isReady: clientReadyStatus[id] || false, 
+    const sessionList = Object.keys(sessions).map(id => ({
+        sessionId: id,
+        isReady: clientReadyStatus[id] || false,
         hasQr: !!qrCodes[id],
         initializing: !!initializing[id],
         settings: sessions[id] ? sessions[id].settings : {}
     }));
-    
+
     res.json({ success: true, sessions: sessionList });
 });
 
 app.post('/session/remove/:sessionId', authenticateToken, async (req, res) => {
     const { sessionId } = req.params;
     const client = sessions[sessionId] ? sessions[sessionId].client : null;
-    
+
     if (client) {
         try {
             await client.logout();
-            
+
             setTimeout(async () => {
                 try {
                     await client.destroy();
@@ -388,7 +388,7 @@ app.post('/session/remove/:sessionId', authenticateToken, async (req, res) => {
             }
         }
     }
-    
+
     cleanupSession(sessionId);
     res.json({ success: true, message: `Session '${sessionId}' removed.` });
 });
@@ -455,7 +455,7 @@ app.post('/session/send-location/:sessionId', authenticateToken, async (req, res
         return res.status(400).json({ success: false, error: 'Session not ready or not found.' });
     }
     if (!number || typeof latitude === 'undefined' || typeof longitude === 'undefined') {
-        return res.status(400).json({ success = false, error = 'Number, latitude, and longitude are required.' });
+        return res.status(400).json({ success: false, error: 'Number, latitude, and longitude are required.' });
     }
 
     try {
@@ -465,7 +465,7 @@ app.post('/session/send-location/:sessionId', authenticateToken, async (req, res
         res.json({ success: true, message: 'Location sent.' });
     } catch (error) {
         console.error(`Error sending location for session ${sessionId}:`, error);
-        res.status(500).json({ success: true, error: error.message });
+        res.status(500).json({ success: false, error: error.message }); // Corrected: success was true
     }
 });
 
@@ -475,16 +475,16 @@ app.get('/session/contact-info/:sessionId/:contactId', authenticateToken, async 
     const client = sessions[sessionId] ? sessions[sessionId].client : null;
 
     if (!client || !clientReadyStatus[sessionId]) {
-        return res.status(400).json({ success = false, error = 'Session not ready or not found.' });
+        return res.status(400).json({ success: false, error: 'Session not ready or not found.' });
     }
     if (!contactId) {
-        return res.status(400).json({ success = false, error = 'Contact ID is required.' });
+        return res.status(400).json({ success: false, error: 'Contact ID is required.' });
     }
 
     try {
         const jid = normalizeToJid(contactId, countryCode);
         const contact = await client.getContactById(jid);
-        
+
         let profilePicUrl = null;
         try {
             profilePicUrl = await client.getProfilePicUrl(jid);
@@ -498,40 +498,47 @@ app.get('/session/contact-info/:sessionId/:contactId', authenticateToken, async 
             number: contact.number,
             isBusiness: contact.isBusiness,
             pushname: contact.pushname,
-            profileStatus: contact.statusMessege,
+            profileStatus: contact.statusMessege, // Note: Typo in original, 'statusMessege' should likely be 'statusMessage' if the library uses that. Keeping as is to match provided code.
             profilePicUrl: profilePicUrl
         };
         res.json({ success: true, contact: contactInfo });
     } catch (error) {
         console.error(`Error getting contact info for session ${sessionId}, contact ${contactId}:`, error);
-        res.status(500).json({ success = false, error = error.message });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
 app.post('/session/:sessionId/set-presence-online', authenticateToken, async (req, res) => {
     const { sessionId } = req.params;
-    const { enabled } = req.body;
+    const { enabled } = req.body; // Ensure this is the intended logic
     const sessionObj = sessions[sessionId];
     const client = sessionObj ? sessionObj.client : null;
 
     if (!client || !clientReadyStatus[sessionId]) {
-        return res.status(400).json({ success = false, error = 'Session not ready or not found.' });
+        return res.status(400).json({ success: false, error: 'Session not ready or not found.' });
     }
 
     try {
-        if (enabled) {
+        if (enabled) { // This logic depends on the 'enabled' flag from request
             await client.setStatus('Online');
-            sessionObj.settings.maintainOnlinePresenceEnabled = true;
+            if (sessionObj.settings) { // Check if settings object exists
+                 sessionObj.settings.maintainOnlinePresenceEnabled = true;
+            }
             res.json({ success: true, message: 'Profile status set to "Online".' });
         } else {
-            sessionObj.settings.maintainOnlinePresenceEnabled = false;
+            // If you want to set status to something else when not 'enabled', add here
+            // e.g., await client.setStatus('Offline'); or similar
+            if (sessionObj.settings) {
+                sessionObj.settings.maintainOnlinePresenceEnabled = false;
+            }
             res.json({ success: true, message: 'Online presence simulation disabled locally.' });
         }
     } catch (error) {
         console.error(`Error setting presence online for session ${sessionId}:`, error);
-        res.status(500).json({ success = false, error = error.message || 'Error setting profile status.' });
+        res.status(500).json({ success: false, error: error.message || 'Error setting profile status.' });
     }
 });
+
 
 app.post('/session/:sessionId/settings/typing', authenticateToken, async (req, res) => {
     const { sessionId } = req.params;
@@ -539,9 +546,9 @@ app.post('/session/:sessionId/settings/typing', authenticateToken, async (req, r
     const sessionObj = sessions[sessionId];
 
     if (!sessionObj) {
-        return res.status(400).json({ success = false, error = 'Session not found.' });
+        return res.status(400).json({ success: false, error: 'Session not found.' });
     }
-
+     if (!sessionObj.settings) sessionObj.settings = {}; // Ensure settings object exists
     sessionObj.settings.isTypingIndicatorEnabled = enabled;
     res.json({ success: true, message: `Typing indicator setting updated to ${enabled}.` });
 });
@@ -552,9 +559,9 @@ app.post('/session/:sessionId/settings/autoseen', authenticateToken, async (req,
     const sessionObj = sessions[sessionId];
 
     if (!sessionObj) {
-        return res.status(400).json({ success = false, error = 'Session not found.' });
+        return res.status(400).json({ success: false, error: 'Session not found.' });
     }
-
+    if (!sessionObj.settings) sessionObj.settings = {}; // Ensure settings object exists
     sessionObj.settings.autoSendSeenEnabled = enabled;
     res.json({ success: true, message: `Auto send seen setting updated to ${enabled}.` });
 });
@@ -565,7 +572,7 @@ app.post('/session/:sessionId/chat/:chatId/send-typing', authenticateToken, asyn
     const client = sessions[sessionId] ? sessions[sessionId].client : null;
 
     if (!client || !clientReadyStatus[sessionId]) {
-        return res.status(400).json({ success = false, error = 'Session not ready or not found.' });
+        return res.status(400).json({ success: false, error: 'Session not ready or not found.' });
     }
 
     try {
@@ -573,7 +580,7 @@ app.post('/session/:sessionId/chat/:chatId/send-typing', authenticateToken, asyn
         res.json({ success: true, message: 'Typing state sent.' });
     } catch (error) {
         console.error(`Error sending typing state for session ${sessionId}, chat ${chatId}:`, error);
-        res.status(500).json({ success = false, error = error.message || 'Error sending typing state.' });
+        res.status(500).json({ success: false, error: error.message || 'Error sending typing state.' });
     }
 });
 
@@ -582,7 +589,7 @@ app.post('/session/:sessionId/chat/:chatId/send-seen', authenticateToken, async 
     const client = sessions[sessionId] ? sessions[sessionId].client : null;
 
     if (!client || !clientReadyStatus[sessionId]) {
-        return res.status(400).json({ success = false, error = 'Session not ready or not found.' });
+        return res.status(400).json({ success: false, error: 'Session not ready or not found.' });
     }
 
     try {
@@ -590,24 +597,7 @@ app.post('/session/:sessionId/chat/:chatId/send-seen', authenticateToken, async 
         res.json({ success: true, message: 'Seen receipt sent.' });
     } catch (error) {
         console.error(`Error sending seen receipt for session ${sessionId}, chat ${chatId}:`, error);
-        res.status(500).json({ success = false, error = error.message || 'Error sending seen receipt.' });
-    }
-});
-
-app.post('/session/:sessionId/set-presence-online', authenticateToken, async (req, res) => {
-    const { sessionId } = req.params;
-    const client = sessions[sessionId] ? sessions[sessionId].client : null;
-
-    if (!client || !clientReadyStatus[sessionId]) {
-        return res.status(400).json({ success = false, error = 'Session not ready or not found.' });
-    }
-
-    try {
-        await client.setStatus('Online');
-        res.json({ success: true, message: 'Presence set to Online.' });
-    } catch (error) {
-        console.error(`Error setting presence online for session ${sessionId}:`, error);
-        res.status(500).json({ success = false, error = error.message });
+        res.status(500).json({ success: false, error: error.message || 'Error sending seen receipt.' });
     }
 });
 
@@ -621,7 +611,7 @@ app.get('/session/:sessionId/auto-responders', authenticateToken, async (req, re
         res.json({ success: true, responders });
     } catch (error) {
         console.error(`Error getting auto-responders for session ${sessionId}:`, error);
-        res.status(500).json({ success = false, error = error.message || 'Error fetching auto-responders.' });
+        res.status(500).json({ success: false, error: error.message || 'Error fetching auto-responders.' });
     }
 });
 
@@ -631,7 +621,7 @@ app.post('/session/:sessionId/auto-responders', authenticateToken, async (req, r
     const { keyword, messageType, keywordType, quoted, replyOnlyWhen, status, messageContent } = req.body;
 
     if (!keyword || !messageType || !messageContent) {
-        return res.status(400).json({ success = false, error = 'Keyword, messageType, and messageContent are required.' });
+        return res.status(400).json({ success: false, error: 'Keyword, messageType, and messageContent are required.' });
     }
 
     try {
@@ -649,7 +639,7 @@ app.post('/session/:sessionId/auto-responders', authenticateToken, async (req, r
         res.status(201).json({ success: true, responder: savedResponder, message: 'Auto-responder created.' });
     } catch (error) {
         console.error(`Error creating auto-responder for session ${sessionId}:`, error);
-        res.status(500).json({ success = false, error = error.message || 'Error creating auto-responder.' });
+        res.status(500).json({ success: false, error: error.message || 'Error creating auto-responder.' });
     }
 });
 
@@ -666,28 +656,28 @@ app.put('/session/:sessionId/auto-responders/:responderId', authenticateToken, a
         );
 
         if (!updatedResponder) {
-            return res.status(404).json({ success = false, error = 'Auto-responder not found or does not belong to this session.' });
+            return res.status(404).json({ success: false, error: 'Auto-responder not found or does not belong to this session.' });
         }
         res.json({ success: true, responder: updatedResponder, message: 'Auto-responder updated.' });
     } catch (error) {
         console.error(`Error updating auto-responder ${responderId} for session ${sessionId}:`, error);
-        res.status(500).json({ success = false, error = error.message || 'Error updating auto-responder.' });
+        res.status(500).json({ success: false, error: error.message || 'Error updating auto-responder.' });
     }
 });
 
 // Delete an auto-responder
 app.delete('/session/:sessionId/auto-responders/:responderId', authenticateToken, async (req, res) => {
-    const { sessionId } = req.params;
+    const { sessionId, responderId } = req.params; // responderId was missing in destructuring
     try {
         const deletedResponder = await AutoResponder.findOneAndDelete({ _id: responderId, sessionId: sessionId });
 
         if (!deletedResponder) {
-            return res.status(404).json({ success = false, error = 'Auto-responder not found or does not belong to this session.' });
+            return res.status(404).json({ success: false, error: 'Auto-responder not found or does not belong to this session.' });
         }
         res.json({ success: true, message: 'Auto-responder deleted.' });
     } catch (error) {
         console.error(`Error deleting auto-responder ${responderId} for session ${sessionId}:`, error);
-        res.status(500).json({ success = false, error = error.message || 'Error deleting auto-responder.' });
+        res.status(500).json({ success: false, error: error.message || 'Error deleting auto-responder.' });
     }
 });
 
@@ -697,18 +687,18 @@ app.post('/session/:sessionId/auto-responders/batch-delete', authenticateToken, 
     const { ids } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0) {
-        return res.status(400).json({ success = false, error = 'An array of responder IDs is required for batch delete.' });
+        return res.status(400).json({ success: false, error: 'An array of responder IDs is required for batch delete.' });
     }
 
     try {
         const result = await AutoResponder.deleteMany({ _id: { $in: ids }, sessionId: sessionId });
         if (result.deletedCount === 0) {
-            return res.status(404).json({ success = false, message = 'No matching auto-responders found for deletion.', deletedCount = 0 });
+            return res.status(404).json({ success: false, message: 'No matching auto-responders found for deletion.', deletedCount: 0 });
         }
         res.json({ success: true, message: `${result.deletedCount} auto-responder(s) deleted.`, deletedCount: result.deletedCount });
     } catch (error) {
         console.error(`Error batch deleting auto-responders for session ${sessionId}:`, error);
-        res.status(500).json({ success = false, error = error.message || 'Error batch deleting auto-responders.' });
+        res.status(500).json({ success: false, error: error.message || 'Error batch deleting auto-responders.' });
     }
 });
 
@@ -721,90 +711,90 @@ console.log(`Serving static files from: ${frontendDistPath}`);
 
 // --- Socket.IO Listeners ---
 io.on('connection', (socket) => {
-    if (!socket.user) { 
-        socket.disconnect(true); 
-        return; 
-    } 
-    
+    if (!socket.user) {
+        socket.disconnect(true);
+        return;
+    }
+
     console.log('Socket.IO user connected:', socket.id, `(User: ${socket.user.username})`);
-    
-    socket.on('join_session_room', (sessionId) => { 
-        if (sessionId) { 
-            socket.join(sessionId); 
-            
+
+    socket.on('join_session_room', (sessionId) => {
+        if (sessionId) {
+            socket.join(sessionId);
+
             if (qrCodes[sessionId]) {
                 socket.emit('qr_code', { sessionId, qr: qrCodes[sessionId] });
-            } 
+            }
             else if (clientReadyStatus[sessionId]) {
                 socket.emit('ready', { sessionId });
-            } 
+            }
             else if (sessions[sessionId]) {
-                socket.emit('status_update', { 
-                    sessionId, 
+                socket.emit('status_update', {
+                    sessionId,
                     message: initializing[sessionId] ? 'Session initializing...' : 'Session exists.',
                     settings: sessions[sessionId].settings
                 });
-            } 
+            }
             else {
-                socket.emit('status_update', { 
-                    sessionId, 
+                socket.emit('status_update', {
+                    sessionId,
                     message: 'Session not active.',
                     qrCleared: true
                 });
             }
         }
     });
-    
-    socket.on('request_init_session', (sessionId) => { 
+
+    socket.on('request_init_session', (sessionId) => {
         if (!sessionId) return;
-        
+
         if (initializing[sessionId]) {
             console.log(`[${sessionId}] Session initialization already in progress, not starting again`);
-            socket.emit('status_update', { 
-                sessionId, 
-                message: `Session initialization in progress.` 
+            socket.emit('status_update', {
+                sessionId,
+                message: `Session initialization in progress.`
             });
             return;
         }
-        
+
         if (sessions[sessionId] && sessions[sessionId].client) {
             sessions[sessionId].client.getState()
                 .then(st => {
-                    socket.emit('status_update', { 
-                        sessionId, 
-                        message: `Session exists. State: ${st}`, 
+                    socket.emit('status_update', {
+                        sessionId,
+                        message: `Session exists. State: ${st}`,
                         status: st,
                         settings: sessions[sessionId].settings
                     });
-                    
+
                     if (qrCodes[sessionId]) {
-                        socket.emit('qr_code', { 
-                            sessionId, 
-                            qr: qrCodes[sessionId] 
+                        socket.emit('qr_code', {
+                            sessionId,
+                            qr: qrCodes[sessionId]
                         });
                     }
                 })
-                .catch(() => { 
+                .catch(() => {
                     if (sessions[sessionId] && sessions[sessionId].client) {
                         try { sessions[sessionId].client.destroy(); } catch(e) { /* ignore */ }
                         cleanupSession(sessionId);
                     }
-                    
-                    createWhatsappSession(sessionId); 
-                    socket.emit('status_update', { 
-                        sessionId, 
+
+                    createWhatsappSession(sessionId);
+                    socket.emit('status_update', {
+                        sessionId,
                         message: `Session re-initializing.`
                     });
                 });
-        } else { 
-            createWhatsappSession(sessionId); 
-            socket.emit('status_update', { 
-                sessionId, 
+        } else {
+            createWhatsappSession(sessionId);
+            socket.emit('status_update', {
+                sessionId,
                 message: `Session initialization started.`
             });
-        } 
+        }
     });
-    
+
     socket.on('disconnect', () => console.log('Socket.IO user disconnected:', socket.id));
 });
 
